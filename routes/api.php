@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ApiController;
+use App\Http\Middleware\HttpRequestTimeoutMiddleware;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,7 +17,11 @@ use App\Http\Controllers\ApiController;
 
 Route::post('/order', [ApiController::class, 'createOrder'])->name('api.createOrder');
 
-Route::get('/order', [ApiController::class, 'getOrder'])->name('api.getOrder');
+Route::middleware([
+    HttpRequestTimeoutMiddleware::class
+])->group(function () {
+    Route::get('/order', [ApiController::class, 'getOrder'])->name('api.getOrder');
+});
 
 Route::delete('/order', [ApiController::class, 'deleteOrder'])->name('api.deleteOrder');
 

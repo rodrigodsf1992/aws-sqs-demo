@@ -43,58 +43,6 @@ class ApiController extends Controller
         ], 200);
     }
 
-    public function getOrder(Request $request)
-    {
-        ini_set('max_execution_time', 1);
-        
-        $awsSqsService = new AwsSqsService();
-
-        $messages = $awsSqsService->receive();
-
-        if (empty($messages)) {
-            return response()->json([
-                'message' => 'Nenhum ID na fila'
-            ], 200);
-        }
-
-        $message = '';
-
-        for ($i = 0; $i < count($messages); $i++) {
-            $itens = $messages[$i];
-
-            $id = $itens['Body'];
-
-            $etapa = Cache::get($id)['etapa'];
-
-            $message .= 'ID: ' . $id;
-
-            for ($x = $etapa; $x < 5; $x++) {
-                switch ($x) {
-                    case 0: 
-                    case 1:
-                    case 2:
-                    case 3: 
-                        $message .= ' | Etapa: ' . $x + 1;
-                        $this->updateEtapa($id, $x + 1); 
-                        break;
-                    case 4: 
-                        Cache::forget($id);
-                        $awsSqsService->delete($itens['ReceiptHandle']);
-                        break;
-                }
-            }
-            
-            if (!Cache::has($id)) {
-                $message .= ' | terminou o processo';
-            }
-            $message .= '<br>';
-        }
-
-        return response()->json([
-            'message' => $message
-        ], 200);
-    }
-
     protected function updateEtapa($id, $etapa)
     {
         Cache::put($id, ['etapa' => $etapa]);
