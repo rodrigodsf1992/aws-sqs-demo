@@ -1,0 +1,81 @@
+[x-cloak] {
+    display: none;
+}
+
+p {
+    display: block;
+}
+
+div.card-event img {
+    max-height: 165px;
+    background-size: cover;
+}
+
+.whatsapp-icon {
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    margin: 10px;
+    padding: 0;
+    max-width: 250px;
+    /* width: 50px; */
+}
+
+.mt-lg-60px {
+    padding-top: 60px !important;
+}
+
+@media (min-width: 768px) {
+    .fixed-md {
+        position: sticky;
+        top: calc(61px + 1rem);
+        height: fit-content;
+    }
+}
+
+@media (min-width: 991px) {
+    .mt-lg-60px {
+        padding-top: 0 !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .whatsapp-icon {
+        width: 150px;
+    }
+
+    div.swiper-slide img {
+        min-height: 300px;
+        background-size: cover;
+    }
+    .container{
+        max-width: 92% !important;
+    }
+}
+
+a {
+    text-decoration: none !important;
+    color: inherit !important;
+}
+
+.disabled-submit {
+    cursor: not-allowed !important;
+    opacity: 50% !important;
+}
+
+.btn:focus,.btn:active {
+    /* outline: none !important; */
+    box-shadow: none;
+ }
+
+
+.choicesCustom[data-type*=select-one] {
+    cursor: pointer;
+}
+
+.choicesCustom:last-child {
+    margin-bottom: 0;
+}
+.choicesCustom {
+    position: relative;
+}

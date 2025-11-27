@@ -1,0 +1,54 @@
+services:
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: aws_sqs_demo
+        ports:
+            - "82:80"
+        networks:
+            - ticket-laradock_backend
+        volumes:
+            - .env:/var/www/.env
+            - ./storage/logs/laravel.log:/var/www/storage/logs/laravel.log
+            - ./database:/var/www/database
+        environment:
+            OPCACHE_VALIDATE_TIMESTAMPS: ${OPCACHE_VALIDATE_TIMESTAMPS:-0}
+            OPCACHE_REVALIDATE_FREQ: ${OPCACHE_REVALIDATE_FREQ:-1000}
+        depends_on:
+            - redis_demo
+        develop:
+            watch:
+                - action: sync
+                  x-initialSync: true
+                  path: .
+                  target: /var/www
+                  ignore:
+                    - .git/
+                    - docker/
+                    - jmeter/
+                    - laradock/
+                    - storage/
+                    - vendor/
+
+    redis_demo:
+        image: redis
+        container_name: aqs_sqs_demo_redis
+        command: redis-server
+        environment:
+            REDIS_ARGS: --save 20 1
+        restart: always
+        networks:
+            - ticket-laradock_backend
+        ports:
+            - "6381:6379"
+        volumes:
+            - redisdata:/data
+
+networks:
+    ticket-laradock_backend:
+        external: true
+        driver: bridge
+
+volumes:
+    redisdata:
