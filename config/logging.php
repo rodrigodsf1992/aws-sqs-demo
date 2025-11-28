@@ -4,6 +4,7 @@ use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
 use Monolog\Processor\PsrLogMessageProcessor;
+use App\Logging\WorkerLogTap;
 
 return [
 
@@ -125,6 +126,14 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
+        ],
+
+        'worker' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/worker.log'), // será substituído dinamicamente
+            'level' => 'debug',
+            'days' => 30,
+            'tap' => [WorkerLogTap::class],
         ],
     ],
 

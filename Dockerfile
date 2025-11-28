@@ -71,8 +71,6 @@ RUN pecl channel-update pecl.php.net && \
     pecl install amqp && \
     echo "extension=amqp.so" > /etc/php.d/30-amqp.ini
 
-RUN echo "extension=pcntl.so" > /etc/php.d/20-pcntl.ini
-
 # -----------------------------
 # App Code
 # -----------------------------

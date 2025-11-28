@@ -4,8 +4,15 @@ namespace App\Http\Services;
 
 use App\Http\Services\AwsSqsService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class OrderService {
+
+    protected function log()
+    {   
+        $childWorkerId = $_SERVER['WORKER_ID'];
+        return Log::channel('worker');
+    }
 
     public function getPendingOrders() {
         $awsSqsService = new AwsSqsService();
@@ -20,26 +27,28 @@ class OrderService {
             $id = $itens['Body'];
             $etapa = Cache::get($id)['etapa'] ?? 0;
 
-            echo "\nID: $id";
-
             for ($x = $etapa; $x < 5; $x++) {
 
                 usleep(150000);
 
                 switch ($x) {
-                    case 0: 
-                    case 1: 
+                    case 0:
+                    case 1:
                     case 2:
                     case 3:
                         $etapaAtual = $x + 1;
-                        echo " | Etapa: {$etapaAtual}";
+
+                        $this->log()->info("ID {$id} | Etapa {$etapaAtual}");
+
                         $this->updateEtapa($id, $etapaAtual);
                         break;
 
                     case 4:
                         $awsSqsService->delete($itens['ReceiptHandle']);
                         Cache::forget($id);
-                        echo " | terminou";
+
+                        $this->log()->info("ID {$id} | terminou");
+
                         break;
                 }
             }

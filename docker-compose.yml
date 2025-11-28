@@ -10,7 +10,7 @@ services:
             - ticket-laradock_backend
         volumes:
             - .env:/var/www/.env
-            - ./storage/logs/laravel.log:/var/www/storage/logs/laravel.log
+            - ./storage/logs:/var/www/storage/logs
             - ./database:/var/www/database
         environment:
             OPCACHE_VALIDATE_TIMESTAMPS: ${OPCACHE_VALIDATE_TIMESTAMPS:-0}
