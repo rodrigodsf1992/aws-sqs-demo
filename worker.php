@@ -31,10 +31,34 @@ $config = [
     'sleep'   => 5,
 ];
 
+// =======================
+// Tratamento de sinais
+// =======================
+declare(ticks = 1);
+$shouldExit = false;
+
+pcntl_signal(SIGTERM, function() use (&$shouldExit, $log) {
+    $shouldExit = true;
+    $log->info("[W{$_SERVER['WORKER_ID']}] SIGTERM recebido, encerrando worker...");
+});
+
+// =======================
+// Cria process group do worker
+// =======================
+$pid = getmypid();
+if (!posix_setpgid($pid, $pid)) {
+    $log->warning("[W{$_SERVER['WORKER_ID']}] Falha ao criar process group");
+}
+
 // =============================================
 // LOOP PRINCIPAL
 // =============================================
 while (true) {
+    if ($shouldExit) {
+        $log->info("[W{$_SERVER['WORKER_ID']}] Encerrando worker e todos os processos do grupo...");
+        posix_kill(-getmypid(), SIGKILL);
+        exit(0);
+    }
 
     try {
         $messages = app(\App\Http\Services\OrderService::class)->getPendingOrders();
@@ -50,31 +74,29 @@ while (true) {
         continue;
     }
 
-    // fork filho
-    $pid = pcntl_fork();
-
-    if ($pid === -1) {
-        $log->error("[W{$_SERVER['WORKER_ID']}] Falha ao criar processo FILHO");
+    // Fork filho
+    $childPid = pcntl_fork();
+    if ($childPid === -1) {
+        $log->error("[W{$_SERVER['WORKER_ID']}] Falha ao criar FILHO");
         continue;
     }
 
-    // FILHO
-    if ($pid === 0) {
-        $childPid = getmypid();
-        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childPid iniciado");
+    if ($childPid === 0) {
+        // FILHO
+        $childProcessPid = getmypid();
+        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childProcessPid iniciado");
 
         $start = microtime(true);
 
-        // fork neto
-        $sub = pcntl_fork();
-
-        if ($sub === -1) {
+        // Fork neto
+        $netoPid = pcntl_fork();
+        if ($netoPid === -1) {
             $log->error("[W{$_SERVER['WORKER_ID']}] Falha ao criar NETO");
             exit(1);
         }
 
-        // NETO executa processamento
-        if ($sub === 0) {
+        if ($netoPid === 0) {
+            // NETO
             try {
                 app(\App\Http\Services\OrderService::class)->process($messages);
             } catch (\Throwable $e) {
@@ -83,23 +105,23 @@ while (true) {
             exit(0);
         }
 
-        // FILHO monitora o NETO
+        // FILHO monitora neto
         while (true) {
-            $res = pcntl_waitpid($sub, $status, WNOHANG);
+            $res = pcntl_waitpid($netoPid, $status, WNOHANG);
 
             if ($res > 0) break;
 
             if ((microtime(true) - $start) > $config['timeout']) {
-                $log->warning("[W{$_SERVER['WORKER_ID']}] Timeout! Matando NETO $sub");
-                posix_kill($sub, SIGKILL);
-                pcntl_waitpid($sub, $status);
+                $log->warning("[W{$_SERVER['WORKER_ID']}] Timeout! Matando NETO $netoPid");
+                posix_kill($netoPid, SIGKILL);
+                pcntl_waitpid($netoPid, $status);
                 break;
             }
 
             usleep(20000);
         }
 
-        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childPid finalizado");
+        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childProcessPid finalizado");
         exit(0);
     }
 

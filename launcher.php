@@ -11,11 +11,10 @@ use App\Http\Services\AwsSqsService;
 $maxWorkers = 5;
 $memoryLimitMB = 512;
 $workers = []; // [workerId => pid]
-$workerCount = 0;
 
 while (true) {
     // =========================
-    // Verifica memória do container
+    // Verifica memória
     // =========================
     $mem = memory_get_usage(true) / 1024 / 1024;
     if ($mem > $memoryLimitMB) {
@@ -35,13 +34,13 @@ while (true) {
     }
 
     // =========================
-    // Consulta número de mensagens
+    // Consulta mensagens
     // =========================
     $pendingMessages = (new AwsSqsService())->total();
     $requiredWorkers = max(1, min($maxWorkers, ceil($pendingMessages / 100)));
 
     // =========================
-    // Inicia novos workers se necessário
+    // Inicia novos workers
     // =========================
     for ($i = 1; $i <= $requiredWorkers; $i++) {
         if (!isset($workers[$i])) {
@@ -54,9 +53,7 @@ while (true) {
             }
 
             if ($pid === 0) {
-                // Seta ID do worker para logging
                 $_SERVER['WORKER_ID'] = $i;
-                // Chama o worker
                 exec("php /var/www/worker.php {$i}");
                 exit;
             }
@@ -66,21 +63,23 @@ while (true) {
     }
 
     // =========================
-    // Reduz workers se necessário
+    // Reduz workers excedentes
     // =========================
     $currentWorkers = count($workers);
     if ($currentWorkers > $requiredWorkers) {
         $diff = $currentWorkers - $requiredWorkers;
-        echo "Reduzindo {$diff} worker(s) por fila menor...\n";
-        // Mata os últimos workers excedentes
+        echo "Reduzindo {$diff} worker(s)...\n";
+
         for ($i = $maxWorkers; $i >= 1 && $diff > 0; $i--) {
             if (isset($workers[$i])) {
-                posix_kill($workers[$i], SIGTERM);
+                $pid = $workers[$i];
+                echo "Matando worker {$i} (PID $pid e todo PGID)...\n";
+                posix_kill(-$pid, SIGTERM);
                 unset($workers[$i]);
                 $diff--;
             }
         }
     }
 
-    sleep(2); // aguarda antes da próxima verificação
+    sleep(2);
 }
