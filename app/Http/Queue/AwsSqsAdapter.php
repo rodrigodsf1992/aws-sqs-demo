@@ -110,4 +110,28 @@ class AwsSqsAdapter implements AdapterInterface
             throw $ex;
         }
     }
+
+    public function total(array $conf)
+    {
+        try {
+
+            $params = [
+                'QueueUrl' => $conf['url'],
+                'AttributeNames' => [
+                    'ApproximateNumberOfMessages',
+                    'ApproximateNumberOfMessagesNotVisible',
+                    'ApproximateNumberOfMessagesDelayed',
+                ],
+            ];
+            $result = $this->client->getQueueAttributes($params);
+
+            $approximateNumberOfMessages = $result['Attributes']['ApproximateNumberOfMessages'] ?? 0;
+            $approximateNumberOfMessagesNotVisible = $result['Attributes']['ApproximateNumberOfMessagesNotVisible'] ?? 0;
+            $approximateNumberOfMessagesDelayed = $result['Attributes']['ApproximateNumberOfMessagesDelayed'] ?? 0;
+
+            return $approximateNumberOfMessages + $approximateNumberOfMessagesNotVisible + $approximateNumberOfMessagesDelayed;
+        } catch (AwsException $ex) {
+            throw $ex;
+        }
+    }
 }

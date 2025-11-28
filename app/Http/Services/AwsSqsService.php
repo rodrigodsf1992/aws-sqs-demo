@@ -48,4 +48,9 @@ class AwsSqsService
         return $this->adapter->delete($handle, $this->queueConfig);
     }
 
+    public function total()
+    {
+        return $this->adapter->total($this->queueConfig);
+    }
+
 }

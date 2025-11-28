@@ -1,19 +1,17 @@
 <?php
 
+require __DIR__.'/vendor/autoload.php';
+
+$app = require __DIR__.'/bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+
+use App\Http\Services\AwsSqsService;
+
 $maxWorkers = 5;
 $memoryLimitMB = 512;
 $workers = []; // [workerId => pid]
 $workerCount = 0;
-
-// Função para consultar número de mensagens na fila via endpoint
-function getPendingMessages(): int {
-    // Exemplo: usando file_get_contents ou curl
-    $url = "http://localhost/api/queue/pending"; 
-    $json = @file_get_contents($url);
-    if (!$json) return 0;
-    $data = json_decode($json, true);
-    return intval($data['pending'] ?? 0);
-}
 
 while (true) {
     // =========================
@@ -39,7 +37,7 @@ while (true) {
     // =========================
     // Consulta número de mensagens
     // =========================
-    $pendingMessages = getPendingMessages();
+    $pendingMessages = (new AwsSqsService())->total();
     $requiredWorkers = max(1, min($maxWorkers, ceil($pendingMessages / 100)));
 
     // =========================
