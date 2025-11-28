@@ -20,7 +20,7 @@ class ApiController extends Controller
         $messages = [];
         for ($i = 0; $i < $qtd; $i++) {
             $uuid = Str::uuid()->toString();
-            $expiresAt = Carbon::now()->addDays(4);
+            $expiresAt = Carbon::now()->addSeconds(60);
             Cache::put($uuid, ['etapa' => 0], $expiresAt);
             Redis::incr(env('QUEUE_SQS_TICKETS_NAME_TOTAL_NUMBER_MESSAGES_SQS', 'total_number_messages_sqs'));
             $messages[] = $uuid;

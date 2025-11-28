@@ -42,7 +42,6 @@ class OrderService {
                         $awsSqsService->delete($itens['ReceiptHandle']);
                         Cache::forget($id);
                         Redis::decr(env('QUEUE_SQS_TICKETS_NAME_TOTAL_NUMBER_MESSAGES_SQS', 'total_number_messages_sqs'));
-
                         Log::channel('worker')->info("ID {$id} | terminou");
 
                         break;
@@ -53,7 +52,14 @@ class OrderService {
 
     protected function updateEtapa($id, $etapa)
     {
-        Cache::put($id, ['etapa' => $etapa]);
+        $prefix = config('database.redis.options.prefix') . config('cache.prefix');
+        $seconds = Redis::ttl($prefix . ":" . $id);
+
+        $expireAt = now()->addDays(4);
+        if ($seconds > 0) {
+            $expireAt = now()->addSeconds($seconds);
+        }
+        Cache::put($id, ['etapa' => $etapa], $expireAt);
     }
 
 }
