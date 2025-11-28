@@ -2,40 +2,30 @@
 
 namespace App\Logging;
 
-use Monolog\Handler\RotatingFileHandler;
 use Monolog\Logger as MonologLogger;
+use Monolog\Handler\StreamHandler;
+use Monolog\Formatter\LineFormatter;
 
 class WorkerLogTap
 {
-    /**
-     * Configure the given logger instance.
-     *
-     * @param  \Illuminate\Log\Logger  $logger
-     * @return void
-     */
     public function __invoke($logger)
     {
-        // Pega o worker do $_SERVER
         $workerId = $_SERVER['WORKER_ID'] ?? 1;
-
-        // Dias de retenção da config
+        $date = date('Y-m-d');
+        $logFile = storage_path("logs/{$date}-worker{$workerId}.log");
         $days = config('logging.channels.worker.days', 30);
 
-        // Nome do arquivo YYYY-MM-DD-workerX.log
-        $date = date('Y-m-d');
-        $fileName = storage_path("logs/{$date}-worker{$workerId}.log");
+        $monolog = $logger->getLogger();
+        $monolog->setHandlers([]);
 
-        // Remove handlers padrão do logger
-        $monolog = $logger->getMonolog();
-        foreach ($monolog->getHandlers() as $handler) {
-            $monolog->popHandler();
-        }
+        $handler = new StreamHandler($logFile, MonologLogger::DEBUG);
 
-        // Adiciona o RotatingFileHandler
-        $monolog->pushHandler(new RotatingFileHandler(
-            $fileName,
-            $days,
-            MonologLogger::DEBUG
-        ));
+        // formatter sem contexto nem extra
+        $formatter = new LineFormatter("%datetime% %level_name%: %message%\n", "Y-m-d\TH:i:s.uP", true, true);
+        $handler->setFormatter($formatter);
+
+        $monolog->pushHandler($handler);
+
+        $logger->workerDays = $days;
     }
 }

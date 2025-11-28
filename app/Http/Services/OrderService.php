@@ -8,12 +8,6 @@ use Illuminate\Support\Facades\Log;
 
 class OrderService {
 
-    protected function log()
-    {   
-        $childWorkerId = $_SERVER['WORKER_ID'];
-        return Log::channel('worker');
-    }
-
     public function getPendingOrders() {
         $awsSqsService = new AwsSqsService();
         return $awsSqsService->receive();
@@ -38,7 +32,7 @@ class OrderService {
                     case 3:
                         $etapaAtual = $x + 1;
 
-                        $this->log()->info("ID {$id} | Etapa {$etapaAtual}");
+                        Log::channel('worker')->info("ID {$id} | Etapa {$etapaAtual}");
 
                         $this->updateEtapa($id, $etapaAtual);
                         break;
@@ -47,7 +41,7 @@ class OrderService {
                         $awsSqsService->delete($itens['ReceiptHandle']);
                         Cache::forget($id);
 
-                        $this->log()->info("ID {$id} | terminou");
+                        Log::channel('worker')->info("ID {$id} | terminou");
 
                         break;
                 }
