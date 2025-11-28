@@ -6,124 +6,217 @@ $app = require __DIR__.'/bootstrap/app.php';
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
-// =============================================
-// Worker index via argumento
-// =============================================
-$workerIndex = intval($argv[1] ?? 1);
-if ($workerIndex < 1) {
-    echo "Worker inválido.\n";
-    exit(1);
-}
+use Illuminate\Support\Facades\Redis;
 
-// WORKER ID GLOBAL DO PROCESSO
-$_SERVER['WORKER_ID'] = $workerIndex;
+$maxWorkers = 5;
+$memoryLimitMB = 512;
+$workers = []; // [workerId => pid]
 
-$log = \Log::channel('worker');
-
-// LOG inicial
-$log->info("====================================");
-$log->info("WORKER {$workerIndex} INICIADO (PID ".getmypid().")");
-$log->info("====================================");
-
-// CONFIG LOCAL DO WORKER
-$config = [
-    'timeout' => 2,
-    'sleep'   => 5,
-];
-
-// =======================
-// Tratamento de sinais
-// =======================
 declare(ticks = 1);
+
+// =======================
+// Flag de saída do launcher
+// =======================
 $shouldExit = false;
 
-pcntl_signal(SIGTERM, function() use (&$shouldExit, $log) {
+// Captura SIGTERM
+pcntl_signal(SIGTERM, function() use (&$shouldExit) {
     $shouldExit = true;
-    $log->info("[W{$_SERVER['WORKER_ID']}] SIGTERM recebido, encerrando worker...");
+});
+// Captura SIGINT (Ctrl+C)
+pcntl_signal(SIGINT, function() use (&$shouldExit) {
+    $shouldExit = true;
 });
 
-// =======================
-// Cria process group do worker
-// =======================
-$pid = getmypid();
-if (!posix_setpgid($pid, $pid)) {
-    $log->warning("[W{$_SERVER['WORKER_ID']}] Falha ao criar process group");
+// Função para log com horário no terminal
+function tlog(string $message) {
+    echo "[".date('Y-m-d H:i:s')."] ".$message."\n";
 }
 
-// =============================================
-// LOOP PRINCIPAL
-// =============================================
-while (true) {
-    if ($shouldExit) {
-        $log->info("[W{$_SERVER['WORKER_ID']}] Encerrando worker e todos os processos do grupo...");
-        posix_kill(-getmypid(), SIGKILL);
-        exit(0);
+// =======================
+// Função para iniciar um worker
+// =======================
+function startWorker(int $workerIndex): int {
+    $pid = pcntl_fork();
+    if ($pid === -1) {
+        tlog("[Launcher] Falha ao iniciar worker {$workerIndex}");
+        \Log::channel('worker')->error("Falha ao iniciar worker {$workerIndex}");
+        return 0;
     }
 
-    try {
-        $messages = app(\App\Http\Services\OrderService::class)->getPendingOrders();
-    } catch (\Throwable $e) {
-        $log->error("[W{$_SERVER['WORKER_ID']}] Erro getPendingOrders(): ".$e->getMessage());
-        sleep($config['sleep']);
-        continue;
-    }
+    if ($pid === 0) {
+        $_SERVER['WORKER_ID'] = $workerIndex;
+        $workerPid = getmypid();
+        \Log::channel('worker')->info("WORKER {$workerIndex} INICIADO (PID {$workerPid})");
+        tlog("[Worker {$workerIndex}] Iniciado (PID {$workerPid})");
 
-    if (empty($messages)) {
-        $log->info("[W{$_SERVER['WORKER_ID']}] Nenhuma mensagem encontrada...");
-        sleep($config['sleep']);
-        continue;
-    }
+        posix_setpgid($workerPid, $workerPid);
 
-    // Fork filho
-    $childPid = pcntl_fork();
-    if ($childPid === -1) {
-        $log->error("[W{$_SERVER['WORKER_ID']}] Falha ao criar FILHO");
-        continue;
-    }
+        $shouldExitWorker = false;
 
-    if ($childPid === 0) {
-        // FILHO
-        $childProcessPid = getmypid();
-        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childProcessPid iniciado");
+        // Sinais para o worker específico
+        pcntl_signal(SIGTERM, function() use (&$shouldExitWorker, $workerIndex, $workerPid) {
+            $shouldExitWorker = true;
+            tlog("[Worker {$workerIndex}] SIGTERM recebido, encerrando filhos/netos do PGID {$workerPid}");
+        });
+        pcntl_signal(SIGINT, function() use (&$shouldExitWorker, $workerIndex, $workerPid) {
+            $shouldExitWorker = true;
+            tlog("[Worker {$workerIndex}] SIGINT recebido (Ctrl+C), encerrando filhos/netos do PGID {$workerPid}");
+        });
 
-        $start = microtime(true);
+        $config = ['timeout' => 4, 'sleep' => 5];
 
-        // Fork neto
-        $netoPid = pcntl_fork();
-        if ($netoPid === -1) {
-            $log->error("[W{$_SERVER['WORKER_ID']}] Falha ao criar NETO");
-            exit(1);
-        }
-
-        if ($netoPid === 0) {
-            // NETO
-            try {
-                app(\App\Http\Services\OrderService::class)->process($messages);
-            } catch (\Throwable $e) {
-                $log->error("[W{$_SERVER['WORKER_ID']}] Erro no processamento: ".$e->getMessage());
-            }
-            exit(0);
-        }
-
-        // FILHO monitora neto
         while (true) {
-            $res = pcntl_waitpid($netoPid, $status, WNOHANG);
+            pcntl_signal_dispatch();
 
-            if ($res > 0) break;
+            if ($shouldExitWorker) {
+                tlog("[Worker {$workerIndex}] Enviando SIGTERM para todos os filhos/netos do PGID {$workerPid}...");
+                posix_kill(-getmypid(), SIGTERM);
 
-            if ((microtime(true) - $start) > $config['timeout']) {
-                $log->warning("[W{$_SERVER['WORKER_ID']}] Timeout! Matando NETO $netoPid");
-                posix_kill($netoPid, SIGKILL);
-                pcntl_waitpid($netoPid, $status);
-                break;
+                // Aguarda filhos/netos terminarem
+                while (pcntl_wait($status) > 0) {
+                    // espera ativa
+                }
+
+                tlog("[Worker {$workerIndex}] Todos os filhos/netos finalizados. Encerrando worker.");
+                exit(0);
             }
 
-            usleep(20000);
+            try {
+                $messages = app(\App\Http\Services\OrderService::class)->getPendingOrders();
+            } catch (\Throwable $e) {
+                \Log::channel('worker')->error("[W{$workerIndex}] getPendingOrders(): ".$e->getMessage());
+                sleep($config['sleep']);
+                continue;
+            }
+
+            if (empty($messages)) {
+                tlog("[Worker {$workerIndex}] Nenhuma mensagem para processar. Dormindo por {$config['sleep']}s");
+                sleep($config['sleep']);
+                continue;
+            }
+
+            // Fork do filho
+            $childPid = pcntl_fork();
+            if ($childPid === -1) {
+                \Log::channel('worker')->error("[W{$workerIndex}] Falha ao criar FILHO");
+                continue;
+            }
+
+            if ($childPid === 0) {
+                $childProcessPid = getmypid();
+                \Log::channel('worker')->info("[W{$workerIndex}] FILHO {$childProcessPid} iniciado");
+
+                $start = microtime(true);
+
+                $netoPid = pcntl_fork();
+                if ($netoPid === -1) {
+                    \Log::channel('worker')->error("[W{$workerIndex}] Falha ao criar NETO");
+                    exit(1);
+                }
+
+                if ($netoPid === 0) {
+                    try {
+                        app(\App\Http\Services\OrderService::class)->process($messages);
+                        \Log::channel('worker')->info("[W{$workerIndex}] NETO ".getmypid()." processou mensagens com sucesso");
+                    } catch (\Throwable $e) {
+                        \Log::channel('worker')->error("[W{$workerIndex}] Erro no NETO: ".$e->getMessage());
+                    }
+                    exit(0);
+                }
+
+                while (true) {
+                    pcntl_signal_dispatch();
+                    $res = pcntl_waitpid($netoPid, $status, WNOHANG);
+                    if ($res > 0) break;
+                    if ((microtime(true) - $start) > $config['timeout']) {
+                        \Log::channel('worker')->warning("[W{$workerIndex}] Timeout! Matando NETO {$netoPid}");
+                        posix_kill($netoPid, SIGKILL);
+                        pcntl_waitpid($netoPid, $status);
+                        break;
+                    }
+                    usleep(20000);
+                }
+
+                \Log::channel('worker')->info("[W{$workerIndex}] FILHO {$childProcessPid} finalizado");
+                exit(0);
+            }
+
+            usleep(50000);
+        }
+    }
+
+    return $pid;
+}
+
+// =======================
+// Loop principal do launcher/worker
+// =======================
+while (true) {
+    pcntl_signal_dispatch();
+
+    if ($shouldExit) {
+        tlog("[Launcher] Encerrando todos os workers...");
+        foreach ($workers as $i => $pid) {
+            tlog("[Launcher] Matando worker {$i} (PID {$pid} e todo PGID) com SIGTERM...");
+            posix_kill(-$pid, SIGTERM);
         }
 
-        $log->info("[W{$_SERVER['WORKER_ID']}] FILHO $childProcessPid finalizado");
+        // Aguarda workers terminarem
+        foreach ($workers as $i => $pid) {
+            pcntl_waitpid($pid, $status);
+            tlog("[Launcher] Worker {$i} finalizado com sucesso.");
+        }
+
         exit(0);
     }
 
-    usleep(50000);
+    $mem = memory_get_usage(true) / 1024 / 1024;
+    if ($mem > $memoryLimitMB) {
+        tlog("[Launcher] Memória excedida ({$mem}MB) – reiniciando launcher...");
+        foreach ($workers as $i => $pid) {
+            posix_kill(-$pid, SIGTERM);
+        }
+        exit(100);
+    }
+
+    foreach ($workers as $i => $pid) {
+        $res = pcntl_waitpid($pid, $status, WNOHANG);
+        if ($res > 0) {
+            tlog("[Launcher] Worker {$i} morreu, liberando slot...");
+            unset($workers[$i]);
+        }
+    }
+
+    $pendingMessages = (int) Redis::get(env('QUEUE_SQS_TICKETS_NAME_TOTAL_NUMBER_MESSAGES_SQS', 'total_number_messages_sqs'));
+    $requiredWorkers = max(1, min($maxWorkers, ceil($pendingMessages / 100)));
+
+    for ($i = 1; $i <= $requiredWorkers; $i++) {
+        if (!isset($workers[$i])) {
+            tlog("[Launcher] Iniciando worker {$i} para {$pendingMessages} mensagens...");
+            $workers[$i] = startWorker($i);
+        }
+    }
+
+    $currentWorkers = count($workers);
+    if ($currentWorkers > $requiredWorkers) {
+        $diff = $currentWorkers - $requiredWorkers;
+        tlog("[Launcher] Reduzindo {$diff} worker(s)...");
+
+        for ($i = $maxWorkers; $i >= 1 && $diff > 0; $i--) {
+            if (isset($workers[$i])) {
+                $pid = $workers[$i];
+                tlog("[Launcher] Matando worker {$i} (PID {$pid} e todo PGID) com SIGTERM...");
+                posix_kill(-$pid, SIGTERM);
+
+                pcntl_waitpid($pid, $status);
+                tlog("[Launcher] Worker {$i} finalizado com sucesso.");
+
+                unset($workers[$i]);
+                $diff--;
+            }
+        }
+    }
+
+    sleep(2);
 }

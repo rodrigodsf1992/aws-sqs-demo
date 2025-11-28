@@ -5,6 +5,7 @@ namespace App\Http\Services;
 use App\Http\Services\AwsSqsService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 class OrderService {
 
@@ -40,6 +41,7 @@ class OrderService {
                     case 4:
                         $awsSqsService->delete($itens['ReceiptHandle']);
                         Cache::forget($id);
+                        Redis::decr(env('QUEUE_SQS_TICKETS_NAME_TOTAL_NUMBER_MESSAGES_SQS', 'total_number_messages_sqs'));
 
                         Log::channel('worker')->info("ID {$id} | terminou");
 

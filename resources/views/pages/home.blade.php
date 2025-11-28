@@ -33,7 +33,9 @@
 
         axios.post(url, {
             qtd: document.getElementById("qtd").value
-        }).then(ok).catch(error);
+        }).then(ok).then(function(ret) {
+            document.querySelector('#message').innerHTML += "<br>Failed to send AWS SQS: " + (ret.data.failed.join(', ') || "Não ocorreram falhas");
+        }).catch(error);
     }
 
     function deleteOrder() {
@@ -52,6 +54,7 @@
         document.querySelector('#message').innerHTML = ret.data.message;
         document.querySelector('#message').classList.remove('d-none');
         document.querySelector('#message').classList.add('bg-light','text-success');
+        return ret;
     }
 
     function reset() {

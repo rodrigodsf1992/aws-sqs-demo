@@ -48,6 +48,11 @@ class AwsSqsService
         return $this->adapter->delete($handle, $this->queueConfig);
     }
 
+    public function sendMessages($list, array $data = []): array
+    {
+        return $this->adapter->sendMessages($list, $this->queueConfig, $data);
+    }
+
     public function total()
     {
         return $this->adapter->total($this->queueConfig);

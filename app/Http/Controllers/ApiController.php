@@ -7,6 +7,7 @@ use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Redis;
 
 class ApiController extends Controller  
 {
@@ -16,15 +17,26 @@ class ApiController extends Controller
 
         $qtd = $request->input('qtd') ?? 100;
 
+        $messages = [];
         for ($i = 0; $i < $qtd; $i++) {
             $uuid = Str::uuid()->toString();
             $expiresAt = Carbon::now()->addDays(4);
             Cache::put($uuid, ['etapa' => 0], $expiresAt);
-            $awsSqsService->send($uuid);
+            Redis::incr(env('QUEUE_SQS_TICKETS_NAME_TOTAL_NUMBER_MESSAGES_SQS', 'total_number_messages_sqs'));
+            $messages[] = $uuid;
+        }
+
+        $messages = array_chunk($messages, env('QUEUE_SQS_TICKETS_MAX_MESSAGES', 10));
+        $responses = [];
+        foreach ($messages as $message) {
+            $response = $awsSqsService->sendMessages($message);
+            $responses = array_merge($responses, $response);
         }
 
         return response()->json([
-            'message' => 'UUID enviado com sucesso'
+            'message' => 'UUID enviado com sucesso',
+            'failed' => $responses['failed'],
+            'success' => $responses['success']
         ], 201);
     }
 

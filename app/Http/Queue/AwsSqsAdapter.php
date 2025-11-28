@@ -111,6 +111,62 @@ class AwsSqsAdapter implements AdapterInterface
         }
     }
 
+    public function sendMessages($list, array $conf, array $data = []): array
+    {
+        try {
+
+            $messages = [];
+
+            foreach ($list as $ids) {
+
+                $attributes = (array) $data;
+
+                $attributes['uuid'] = [
+                    'DataType' => 'String',
+                    'StringValue' => $ids
+                ];
+
+                $params = [
+                    'Id' => $ids,
+                    'MessageBody' => $ids,
+                    'MessageDeduplicationId' => $ids,
+                ];
+
+                $params['MessageAttributes'] = $attributes;
+
+                if ($conf['type'] == 'fifo') {
+                    $params['MessageGroupId'] = $ids;
+                }
+
+                $messages[] = $params;
+            }
+
+            $send = [
+                'QueueUrl' => $conf['url'],
+                'Entries' => $messages,
+            ];
+
+            $result = $this->client->sendMessageBatch($send);
+
+            $successful = [];
+            $success = $result->get('Successful') ?? [];
+            foreach ($success as $message) {
+                $successful[] = $message['Id'];
+            }
+
+            $faileds = [];
+            $failed = $result->get('Failed') ?? [];
+            foreach ($failed as $message) {
+                $faileds[] = $message['Id'];
+            }
+
+            return ['failed' => $faileds, 'success' => $successful];
+
+        } catch (AwsException $ex) {
+            throw $ex;
+        }
+    }
+
     public function total(array $conf)
     {
         try {
